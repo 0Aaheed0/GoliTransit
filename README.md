@@ -13,16 +13,16 @@ Done now:
 - project skeleton is ready
 - `GET /health` exists
 - `POST /api/route` works against a demo graph
+- multi-modal routing with switch penalties is implemented
 - graph edges now use stable `edge_id` values
 - `GET /api/graph/snapshot` exists as a contract/debug endpoint
-- `POST /api/anomaly` exists as a placeholder contract endpoint for Member C
+- session creation and reroute hooks exist for anomaly flow
+- a repeatable route benchmark command exists for the 50-request step
 
 Not done yet:
 
 - real Dhaka graph data
-- multi-modal switching with penalties
 - live anomaly updates to graph weights
-- active-session rerouting
 - demo frontend visualization
 
 ## Team contract
@@ -89,50 +89,63 @@ Response:
 ### `POST /api/route`
 
 Purpose:
-Return the best currently available route for one selected mode. Right now this is the Step A2 single-mode baseline.
+Return the best currently available route using one or more allowed travel modes.
 
 Request body:
 
 ```json
 {
+  "session_id": "session-123",
   "start": "farmgate",
   "destination": "gulshan",
-  "allowed_modes": ["car"]
+  "allowed_modes": ["car", "rickshaw", "walk"]
 }
 ```
 
 Current behavior:
 
 - validation requires valid node IDs
-- the first mode in `allowed_modes` is used as the selected mode
-- edges that do not support that mode are ignored
+- the engine searches across all provided modes
+- mode switching is allowed only at configured transfer nodes
+- each switch adds the configured switch penalty
+- every route is saved to the in-memory session manager
+- if `session_id` is omitted, the backend generates one automatically
 
 Response shape:
 
 ```json
 {
   "data": {
+    "session_id": "session-123",
     "start": "farmgate",
     "destination": "gulshan",
-    "allowed_modes": ["car"],
-    "selected_mode": "car",
-    "path": ["farmgate", "karwan_bazar", "tejgaon", "gulshan"],
+    "allowed_modes": ["car", "rickshaw", "walk"],
+    "selected_modes": ["walk", "rickshaw"],
+    "path": ["farmgate", "green_road", "gulshan"],
+    "nodes": ["farmgate", "green_road", "gulshan"],
     "segments": [
       {
         "edge_id": "edge_farmgate_karwan_bazar",
         "from": "farmgate",
         "to": "karwan_bazar",
         "cost": 4,
-        "mode": "car"
+        "mode": "car",
+        "previous_mode": "car",
+        "switch_penalty": 0,
+        "type": "travel"
       }
     ],
+    "route_segments": [],
     "total_cost": 12,
+    "switches": 1,
+    "computation_time_ms": 2,
     "justification": {
-      "summary": "Best available car route on the current demo graph.",
-      "mode_switches": 0,
-      "mode_switch_penalty_applied": 0,
-      "note": "This is the Step A2 single-mode routing baseline. Multi-modal switching comes next."
-    }
+      "summary": "Best available route on the current demo graph using the selected travel modes.",
+      "mode_switches": 1,
+      "mode_switch_penalty_applied": 3,
+      "note": "This is the Step A3 multi-modal routing baseline with designated transfer nodes and switch penalties."
+    },
+    "session_saved": true
   }
 }
 ```
@@ -164,7 +177,7 @@ Response shape:
 ### `POST /api/anomaly`
 
 Purpose:
-This is the future Step C3 endpoint. The placeholder is already added so Member C can start from a fixed request contract.
+This is the future Step C3 endpoint. The request contract is frozen, and the session reroute hook is already wired so Member C can build on it.
 
 Request body:
 
@@ -178,14 +191,14 @@ Request body:
 Target behavior later:
 
 - inflate the specified edge costs
-- reroute affected active sessions
 - return affected edges, new weights, and rerouted-session count
 
-Current placeholder behavior:
+Current behavior:
 
 - validates the payload
-- returns `501 Not Implemented`
-- echoes the agreed contract back in JSON
+- triggers `rerouteAffectedSessions(affectedEdges)` for any saved sessions already using those edge IDs
+- returns `202 Accepted`
+- does not yet change graph weights
 
 ## Ownership
 
@@ -200,6 +213,7 @@ Files currently relevant:
 
 - `app/Services/Routing/DemoGraphService.php`
 - `app/Services/Routing/DijkstraRoutingService.php`
+- `app/Services/Sessions/SessionManager.php`
 - `app/Http/Controllers/Api/RouteController.php`
 - `routes/api.php`
 
@@ -223,6 +237,7 @@ Best starting points:
 
 - `app/Http/Controllers/Api/AnomalyController.php`
 - `app/Http/Controllers/Api/GraphSnapshotController.php`
+- `app/Services/Sessions/SessionManager.php`
 
 ## Local commands
 
@@ -243,6 +258,7 @@ Useful checks:
 
 ```bash
 php artisan route:list
+php artisan golitransit:benchmark-route --base-url=http://127.0.0.1:8000
 ```
 
 ## Deployment notes

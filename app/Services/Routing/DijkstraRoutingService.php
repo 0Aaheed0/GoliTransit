@@ -6,7 +6,7 @@ use RuntimeException;
 
 class DijkstraRoutingService
 {
-    public function run(array $graph, string $start, string $end, string $mode): array
+    public function run(array $graph, string $start, string $end, array $modes): array
     {
         if (! isset($graph[$start])) {
             throw new RuntimeException("Unknown start node [{$start}].");
@@ -16,59 +16,120 @@ class DijkstraRoutingService
             throw new RuntimeException("Unknown destination node [{$end}].");
         }
 
+        if ($modes === []) {
+            throw new RuntimeException('At least one travel mode must be provided.');
+        }
+
+        $transferNodes = config('golitransit.transfer_nodes', []);
+        $switchPenalty = (int) config('golitransit.mode_switch_penalty', 3);
         $distances = [];
         $previous = [];
         $visited = [];
 
         foreach ($graph as $node => $_edges) {
-            $distances[$node] = INF;
-            $previous[$node] = null;
-            $visited[$node] = false;
+            foreach ($modes as $mode) {
+                $stateKey = $this->stateKey($node, $mode);
+                $distances[$stateKey] = INF;
+                $previous[$stateKey] = null;
+                $visited[$stateKey] = false;
+            }
         }
 
-        $distances[$start] = 0;
+        foreach ($modes as $mode) {
+            $distances[$this->stateKey($start, $mode)] = 0;
+        }
 
         while (true) {
-            $current = $this->getClosestUnvisitedNode($distances, $visited);
+            $currentState = $this->getClosestUnvisitedNode($distances, $visited);
 
-            if ($current === null) {
+            if ($currentState === null) {
                 break;
             }
 
-            if ($current === $end) {
-                break;
-            }
+            ['node' => $currentNode, 'mode' => $currentMode] = $this->parseStateKey($currentState);
+            $visited[$currentState] = true;
 
-            $visited[$current] = true;
-
-            foreach ($graph[$current] as $edge) {
-                if (! in_array($mode, $edge['modes'], true)) {
+            foreach ($graph[$currentNode] as $edge) {
+                if (! in_array($currentMode, $edge['modes'], true)) {
                     continue;
                 }
 
                 $neighbor = $edge['to'];
-                $candidateDistance = $distances[$current] + $edge['cost'];
+                $neighborState = $this->stateKey($neighbor, $currentMode);
+                $candidateDistance = $distances[$currentState] + $edge['cost'];
 
-                if ($candidateDistance < $distances[$neighbor]) {
-                    $distances[$neighbor] = $candidateDistance;
-                    $previous[$neighbor] = [
+                if ($candidateDistance < $distances[$neighborState]) {
+                    $distances[$neighborState] = $candidateDistance;
+                    $previous[$neighborState] = [
                         'edge_id' => $edge['id'],
-                        'node' => $current,
+                        'node' => $currentNode,
+                        'mode' => $currentMode,
                         'cost' => $edge['cost'],
+                        'switch_penalty' => 0,
+                    ];
+                }
+            }
+
+            if (! in_array($currentNode, $transferNodes, true)) {
+                continue;
+            }
+
+            foreach ($modes as $nextMode) {
+                if ($nextMode === $currentMode) {
+                    continue;
+                }
+
+                $nextState = $this->stateKey($currentNode, $nextMode);
+                $candidateDistance = $distances[$currentState] + $switchPenalty;
+
+                if ($candidateDistance < $distances[$nextState]) {
+                    $distances[$nextState] = $candidateDistance;
+                    $previous[$nextState] = [
+                        'edge_id' => null,
+                        'node' => $currentNode,
+                        'mode' => $currentMode,
+                        'cost' => 0,
+                        'switch_penalty' => $switchPenalty,
                     ];
                 }
             }
         }
 
-        if ($distances[$end] === INF) {
-            throw new RuntimeException("No {$mode} route is available from {$start} to {$end}.");
+        $bestEndState = null;
+        $bestEndDistance = INF;
+
+        foreach ($modes as $mode) {
+            $stateKey = $this->stateKey($end, $mode);
+
+            if ($distances[$stateKey] < $bestEndDistance) {
+                $bestEndDistance = $distances[$stateKey];
+                $bestEndState = $stateKey;
+            }
         }
 
+        if ($bestEndState === null || $bestEndDistance === INF) {
+            throw new RuntimeException('No route is available for the selected travel modes.');
+        }
+
+        $segments = $this->buildSegments($previous, $start, $bestEndState);
+        $selectedModes = array_values(array_unique(array_map(
+            static fn (array $segment): string => $segment['mode'],
+            array_filter($segments, static fn (array $segment): bool => $segment['edge_id'] !== null)
+        )));
+
         return [
-            'path' => $this->buildPath($previous, $start, $end),
-            'segments' => $this->buildSegments($previous, $start, $end, $mode),
-            'total_cost' => $distances[$end],
-            'mode' => $mode,
+            'path' => $this->buildPath($segments, $start),
+            'segments' => $segments,
+            'total_cost' => $bestEndDistance,
+            'selected_modes' => $selectedModes,
+            'mode_switches' => count(array_filter(
+                $segments,
+                static fn (array $segment): bool => $segment['edge_id'] === null
+            )),
+            'mode_switch_penalty_applied' => array_sum(array_map(
+                static fn (array $segment): int => $segment['switch_penalty'],
+                $segments
+            )),
         ];
     }
 
@@ -91,47 +152,81 @@ class DijkstraRoutingService
         return $closestNode;
     }
 
-    protected function buildPath(array $previous, string $start, string $end): array
+    protected function buildPath(array $segments, string $start): array
     {
-        $path = [];
-        $cursor = $end;
+        $path = [$start];
 
-        while ($cursor !== null) {
-            array_unshift($path, $cursor);
-
-            if ($cursor === $start) {
-                break;
+        foreach ($segments as $segment) {
+            if ($segment['edge_id'] === null) {
+                continue;
             }
 
-            $cursor = $previous[$cursor]['node'] ?? null;
+            $path[] = $segment['to'];
         }
 
         return $path;
     }
 
-    protected function buildSegments(array $previous, string $start, string $end, string $mode): array
+    protected function buildSegments(array $previous, string $start, string $endState): array
     {
         $segments = [];
-        $cursor = $end;
+        $cursorState = $endState;
 
-        while ($cursor !== $start) {
-            $segment = $previous[$cursor] ?? null;
+        while ($cursorState !== null) {
+            ['node' => $cursorNode, 'mode' => $cursorMode] = $this->parseStateKey($cursorState);
+
+            if ($cursorNode === $start && ($previous[$cursorState] ?? null) === null) {
+                break;
+            }
+
+            $segment = $previous[$cursorState] ?? null;
 
             if ($segment === null) {
                 break;
             }
 
-            array_unshift($segments, [
-                'edge_id' => $segment['edge_id'],
-                'from' => $segment['node'],
-                'to' => $cursor,
-                'cost' => $segment['cost'],
-                'mode' => $mode,
-            ]);
+            if ($segment['edge_id'] === null) {
+                array_unshift($segments, [
+                    'edge_id' => null,
+                    'from' => $segment['node'],
+                    'to' => $cursorNode,
+                    'cost' => 0,
+                    'mode' => $cursorMode,
+                    'previous_mode' => $segment['mode'],
+                    'switch_penalty' => $segment['switch_penalty'],
+                    'type' => 'mode_switch',
+                ]);
+            } else {
+                array_unshift($segments, [
+                    'edge_id' => $segment['edge_id'],
+                    'from' => $segment['node'],
+                    'to' => $cursorNode,
+                    'cost' => $segment['cost'],
+                    'mode' => $cursorMode,
+                    'previous_mode' => $cursorMode,
+                    'switch_penalty' => 0,
+                    'type' => 'travel',
+                ]);
+            }
 
-            $cursor = $segment['node'];
+            $cursorState = $this->stateKey($segment['node'], $segment['mode']);
         }
 
         return $segments;
+    }
+
+    protected function stateKey(string $node, string $mode): string
+    {
+        return $node.'|'.$mode;
+    }
+
+    protected function parseStateKey(string $stateKey): array
+    {
+        [$node, $mode] = explode('|', $stateKey, 2);
+
+        return [
+            'node' => $node,
+            'mode' => $mode,
+        ];
     }
 }
