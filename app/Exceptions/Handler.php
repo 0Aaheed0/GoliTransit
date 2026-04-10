@@ -2,6 +2,8 @@
 
 namespace App\Exceptions;
 
+use Illuminate\Http\JsonResponse;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Throwable;
 
@@ -25,6 +27,29 @@ class Handler extends ExceptionHandler
     {
         $this->reportable(function (Throwable $e) {
             //
+        });
+
+        $this->renderable(function (ValidationException $exception, $request): ?JsonResponse {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json([
+                'error' => 'Validation failed.',
+                'details' => $exception->errors(),
+            ], 400);
+        });
+
+        $this->renderable(function (Throwable $exception, $request): ?JsonResponse {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json([
+                'error' => app()->hasDebugModeEnabled()
+                    ? $exception->getMessage()
+                    : 'Internal server error.',
+            ], 500);
         });
     }
 }
