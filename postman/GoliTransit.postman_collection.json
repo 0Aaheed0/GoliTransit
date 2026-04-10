@@ -1,0 +1,102 @@
+{
+  "info": {
+    "_postman_id": "58f8e5db-7b67-4d6c-91a5-8fd0cb927001",
+    "name": "GoliTransit",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Hackathon collection for checking health, route generation, anomaly flow, and graph snapshots."
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    }
+  ],
+  "item": [
+    {
+      "name": "GET /health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /api/route",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"session_id\": \"demo-farmgate-gulshan\",\n  \"start\": \"farmgate\",\n  \"destination\": \"gulshan_2\",\n  \"allowed_modes\": [\"car\", \"rickshaw\", \"walk\"]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/route",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "route"
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /api/anomaly",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"edge_ids\": [\"edge_karwan_bazar_tejgaon\", \"edge_tejgaon_banani\"],\n  \"multiplier\": 10\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/anomaly",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "anomaly"
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /api/graph/snapshot",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/graph/snapshot",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "graph",
+            "snapshot"
+          ]
+        }
+      }
+    }
+  ]
+}
