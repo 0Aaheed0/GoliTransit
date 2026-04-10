@@ -19,4 +19,10 @@ use Inertia\Inertia;
 
 Route::get('/', [WelcomeController::class, 'index']);
 
+Route::get('/health', function () {
+    return response()->json([
+        'status' => 'ok',
+    ]);
+});
+
 require __DIR__ . '/auth.php';

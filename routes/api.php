@@ -1,6 +1,8 @@
 <?php
 
-use Illuminate\Http\Request;
+use App\Http\Controllers\Api\AnomalyController;
+use App\Http\Controllers\Api\GraphSnapshotController;
+use App\Http\Controllers\Api\RouteController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -14,6 +16,6 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
-    return $request->user();
-});
+Route::post('/route', RouteController::class);
+Route::post('/anomaly', AnomalyController::class);
+Route::get('/graph/snapshot', GraphSnapshotController::class);
