@@ -30,8 +30,8 @@ class WelcomeController extends Controller
             'edgeCount' => count($graph['edges']),
             'goliEdgeCount' => count(array_filter($graph['edges'], fn (array $edge): bool => $edge['is_goli'])),
             'overpassNodeCount' => count(array_filter($graph['nodes'], fn (array $node): bool => $node['type'] === 'overpass')),
-            'nodes' => array_slice($graph['nodes'], 0, 8),
-            'edges' => array_slice($graph['edges'], 0, 10),
+            'nodes' => $graph['nodes'],
+            'edges' => $graph['edges'],
             'sampleRoute' => $sampleRoute,
             'sampleRouteError' => $sampleRouteError,
         ]);
